@@ -67,14 +67,19 @@ contract CrossChainTransfer {
         uint256 amount;
         uint256 timestamp;
     }
-    event CommitCreated(
+    event AssetCommited(
         bytes indexed transactionId,
         bytes indexed fromAddress,
         bytes indexed toAddress,
         uint256 amount
     );
-
-    event TransferCompleted(
+    event CommitUndone(
+        bytes indexed transactionId,
+        bytes indexed fromAddress,
+        bytes indexed toAddress,
+        uint256 amount
+    );
+    event AssetDispatched(
         bytes indexed transactionId,
         bytes indexed fromAddress,
         bytes indexed toAddress,
@@ -101,67 +106,114 @@ contract CrossChainTransfer {
         return userTransactionNonce[userAddress];
     }
 
-    function createCommitTransaction(
+    function getTransaction(
+        bytes calldata transactionId
+    ) public view returns (Transaction memory) {
+        Transaction memory transaction = transactions[transactionId];
+        return transaction;
+    }
+
+    function switchUSDTContract(
+        address newUSDTContract
+    ) public onlyCallablyBy(admin) {
+        usdtContractAddress = ITRC20(newUSDTContract);
+    }
+
+    function assetCommit(
         bytes calldata transactionId,
-        bytes calldata fromAddress,
-        bytes calldata toAddress,
+        address fromAddress,
+        bytes calldata fromAddressBytes,
+        bytes calldata toAddressBytes,
         uint256 amount
-    ) public whenNotPaused onlyCallablyBy(controller) {
+    ) public whenNotPaused onlyCallablyBy(controller) returns (bytes memory) {
         ensureUniqueTransaction(transactionId);
         require(
             userTransactionNonce[msg.sender] + 1 >
                 userTransactionNonce[msg.sender],
             "Nonce Overflow"
         );
-        address userAddress = bytesToAddress(fromAddress);
-        validateCommit(userAddress, toAddress, amount);
 
+        validateCommit(fromAddress, toAddressBytes, amount);
         transactions[transactionId] = Transaction(
             TransactionType.Commit,
             Chain.Tron,
-            AddressType(Chain.Tron, fromAddress),
-            AddressType(Chain.D9, toAddress),
+            AddressType(Chain.Tron, fromAddressBytes),
+            AddressType(Chain.D9, toAddressBytes),
             amount,
             block.timestamp
         );
-        transferUsdtFromUser(userAddress, amount);
+        transferUsdtFromUser(fromAddress, amount);
         userTransactionNonce[msg.sender] += 1;
-        emit CommitCreated(transactionId, fromAddress, toAddress, amount);
+        emit AssetCommited(
+            transactionId,
+            fromAddressBytes,
+            toAddressBytes,
+            amount
+        );
+        return transactionId;
     }
 
-    function createTransferTransaction(
-        bytes calldata transactionId,
-        bytes calldata fromAddress,
-        bytes calldata toAddress,
-        uint128 amount
+    function undoAssetCommit(
+        bytes calldata transactionId
     ) public whenNotPaused onlyCallablyBy(controller) {
+        Transaction memory transaction = transactions[transactionId];
+        require(transaction.timestamp > 0, "Transaction does not exist");
+        require(
+            transaction.transactionType == TransactionType.Commit,
+            "Transaction is not a commit"
+        );
+        address user = bytesToAddress(transaction.fromAddress.userAddress);
+        transferUsdtToUser(user, transaction.amount);
+        transactions[transactionId].timestamp = 0;
+        userTransactionNonce[user] -= 1;
+        emit CommitUndone(
+            transactionId,
+            transaction.fromAddress.userAddress,
+            transaction.toAddress.userAddress,
+            transaction.amount
+        );
+    }
+
+    function assetDispatch(
+        bytes calldata transactionId,
+        address toAddress,
+        bytes calldata fromAddressBytes,
+        bytes calldata toAddressBytes,
+        uint128 amount
+    ) public whenNotPaused onlyCallablyBy(controller) returns (bytes memory) {
         ensureUniqueTransaction(transactionId);
         require(
             userTransactionNonce[msg.sender] + 1 >
                 userTransactionNonce[msg.sender],
             "Nonce Overflow"
         );
-        validateTransfer(fromAddress, amount);
+        validateTransfer(fromAddressBytes, amount);
         transactions[transactionId] = Transaction(
             TransactionType.Transfer,
             Chain.Tron,
-            AddressType(Chain.D9, fromAddress),
-            AddressType(Chain.Tron, toAddress),
+            AddressType(Chain.D9, fromAddressBytes),
+            AddressType(Chain.Tron, toAddressBytes),
             amount,
             block.timestamp
         );
 
-        transferUsdtToUser(bytesToAddress(toAddress), amount);
+        transferUsdtToUser(toAddress, amount);
         userTransactionNonce[msg.sender] += 1;
-        emit TransferCompleted(transactionId, fromAddress, toAddress, amount);
+        emit AssetDispatched(
+            transactionId,
+            fromAddressBytes,
+            toAddressBytes,
+            amount
+        );
+        return transactionId;
     }
 
     function bytesToAddress(bytes memory b) public pure returns (address) {
         require(b.length >= 20, "Byte array too short");
         uint160 addr;
         assembly {
-            // addr := mload(add(b, add(0x20, sub(mload(b), 20))))
-            addr := mload(add(b, 0x14))
+            addr := mload(add(b, add(0x20, sub(mload(b), 20))))
+            // addr := mload(add(b, 0x14))
         }
         return address(addr);
     }
@@ -182,7 +234,7 @@ contract CrossChainTransfer {
         uint256 amount
     ) internal view {
         require(amount > 0, "Amount must be greater than 0");
-        require(bytes(fromAddress).length == 32, "To Address must be 32 bytes");
+        require(bytes(fromAddress).length == 32, "Address must be 32 bytes");
         uint256 balance = ITRC20(usdtContractAddress).balanceOf(address(this));
         require(amount <= balance, "ContractUSDTBalanceInsufficient");
     }

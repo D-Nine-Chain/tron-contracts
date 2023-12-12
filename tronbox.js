@@ -21,14 +21,14 @@ module.exports = {
          network_id: '1'
       },
       shasta: {
-         privateKey: process.env.PRIVATE_KEY_SHASTA,
+         privateKey: '',
          userFeePercentage: 50,
          feeLimit: 1000 * 1e6,
          fullHost: 'https://api.shasta.trongrid.io',
          network_id: '2'
       },
       nile: {
-         privateKey: process.env.PRIVATE_KEY_NILE,
+         privateKey: '',
          userFeePercentage: 100,
          feeLimit: 1000 * 1e6,
          fullHost: 'https://nile.trongrid.io',

@@ -5,6 +5,9 @@
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.0.0",
+    "@polkadot/util": "^12.6.1",
+    "@polkadot/util-crypto": "^12.6.1",
+    "dotenv": "^16.3.1",
     "openzeppelin-solidity": "3.4.2",
     "prettier": "^3.1.0",
     "tronbox": "^3.4.2",
